@@ -18,9 +18,8 @@ paths += glob('/mnt/nas/中科大44国语言/格鲁吉亚/YouTube/*.mp3')
 
 chunk_length = 600  # 10min
 
-# def slice_audio(path):
 
-
+# fix file and corruption (caused by me)
 @retry(tries=2, delay=2)
 def slice_audio(path):
     audio = AudioSegment.from_file(path)
@@ -41,10 +40,17 @@ def slice_audio(path):
     elif duration < 5:  # 5s
         print(f'{path} removed with duration:{duration:.1f}s')
         os.remove(path)
+    # check stats file
+    if os.path.exists(path+'.csv'):
+        stats = pd.read_csv(path+'.csv')
+        sd = stats.index.max()/100
+        if int(sd) != int(duration):
+            print(f'{path} stats file corrupted: {sd} vs {duration}')
+            os.remove(path+'.csv')
 
 # 检查语言长度
-# with ThreadPoolExecutor(max_workers=10) as executor:
-#     result = list(tqdm(executor.map(slice_audio, paths), total=len(paths)))
+with ThreadPoolExecutor(max_workers=10) as executor:
+    result = list(tqdm(executor.map(slice_audio, paths), total=len(paths)))
 
 print('----->audio sliced!')
 paths = glob('/mnt/nas/中科大44国语言/希伯来语/YouTube/*.mp3')
@@ -88,13 +94,14 @@ for path in tqdm(paths):
         'cuda': True
     })
     print(f'starting SED:{path}')
-    if os.path.exists(path+'.png'):
+    
+    if os.path.exists(path+'.png') and os.path.exists(path+'.csv'):
         print(f'{path} already procedded, skip')
         continue
-    d = AudioSegment.from_file(path).duration_seconds
-    if d > (chunk_length+5):
-        print(f'{path} too long: {d}s, skip!')
-        continue
+    # d = AudioSegment.from_file(path).duration_seconds
+    # if d > (chunk_length+5):
+    #     print(f'{path} too long: {d}s, skip!')
+    #     continue
     framewise_output, labels = sound_event_detection(args2)
 
     def analyze_frame(probs, positibe_keys, negative_keys):
