@@ -8,3 +8,6 @@ __pycache__
 _logs
 *.pth
 paper_statistics
+中科大44国语言
+results/
+.vscode/
