@@ -1,5 +1,13 @@
 # PANNs: Large-Scale Pretrained Audio Neural Networks for Audio Pattern Recognition
 
+跑语音事件检测。目前用到的地方是科大小语种2021投标数据准备。用于处理YouTube爬下来的对话数据。
+流程：
+- 从YouTube爬下数据，放到语种文件夹的`YouTube`子文件夹里
+- 对整个文件进行的时间检测，结果存放在`文件名.mp3_sed.csv`里
+- 同时保存可视化结果到png图像
+
+*注意：因为内存随时长不断增大，所以先对文件进行了600s的切分。
+
 This repo contains code for our paper: **PANNs: Large-Scale Pretrained Audio Neural Networks for Audio Pattern Recognition** [1]. A variety of CNNs are trained on the large-scale AudioSet dataset [2] containing 5000 hours audio with 527 sound classes. A mean average precision (mAP) of 0.439 is achieved using our proposed Wavegram-Logmel-CNN system, outperforming the Google baseline of 0.317 [3]. The PANNs have been used for audio tagging and sound event detection. The PANNs have been used to fine-tune several audio pattern recoginition tasks, and have outperformed several state-of-the-art systems. 
 
 ## Environments
