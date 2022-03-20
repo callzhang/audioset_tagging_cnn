@@ -1,6 +1,14 @@
 # PANNs: Large-Scale Pretrained Audio Neural Networks for Audio Pattern Recognition
 
+## 音频事件服务
+`event_detection_server.py`
+@params form-data: file
+@query threshold: 事件阈值
+@query detail: 详细数据
+
+## 科大小语种数据准备
 跑语音事件检测。目前用到的地方是科大小语种2021投标数据准备。用于处理YouTube爬下来的对话数据。
+脚本：`pytorch/generate_sed_cache.py`
 流程：
 - 从YouTube爬下数据，放到语种文件夹的`YouTube`子文件夹里
 - 对整个文件进行的时间检测，结果存放在`文件名.mp3_sed.csv`里

@@ -1,6 +1,8 @@
 import os
 import sys
-sys.path.insert(1, os.path.join(sys.path[0], '../utils'))
+sys.path.append(os.path.join(sys.path[0], '../utils'))
+sys.path.append(os.path.join(sys.path[0], 'utils'))
+sys.path.append(os.path.join(sys.path[0], 'pytorch'))
 import numpy as np
 import argparse
 import librosa
@@ -111,12 +113,11 @@ def sound_event_detection(args):
     checkpoint = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(checkpoint['model'])
 
-    # Parallel
-    print('GPU number: {}'.format(torch.cuda.device_count()))
-    model = torch.nn.DataParallel(model)
-
     if 'cuda' in str(device):
         model.to(device)
+        # Parallel
+        print('GPU number: {}'.format(torch.cuda.device_count()))
+        model = torch.nn.DataParallel(model)
     
     # Load audio
     (waveform, _) = librosa.core.load(audio_path, sr=sample_rate, mono=True)

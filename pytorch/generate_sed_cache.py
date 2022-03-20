@@ -13,7 +13,7 @@ from box import Box
 from glob import glob
 import pickle, random, hashlib, os, time, datetime, sys
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-sys.path.append('pytorch')
+# sys.path.append('pytorch')
 from inference import audio_tagging, sound_event_detection
 import numpy as np
 import pandas as pd
@@ -23,11 +23,15 @@ from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
 from retry import retry
 
+BASE = os.path.dirname(__file__)+'/../'
+EVENT_THRESHOLD = 0.2
 chunk_length = 600  # 10min
-kw = ['speech', 'speak', 'conversation', 'male', 'female']
+# positive keywords
+kw = ['speech', 'speak', 'conversation', 'male', 'female'] 
+# negative keywords
 nw = ['music']
 
-sed_cache = '/mnt/nas/中科大44国语言/sed_cache/'
+sed_cache = BASE+'sed_cache/'
 
 def get_all_mp3():
     paths = glob('/mnt/nas/中科大44国语言/希伯来语/YouTube/*.mp3')
@@ -101,6 +105,23 @@ def slice_audio(path):
     return 1
 
 
+def analyze_frame(probs, positive_keys, negative_keys, labels):
+    top5 = np.argsort(-probs)[:5]
+    events = {labels[i]: probs[i] for i in top5}
+    speak = [p for e, p in events.items() for k in positive_keys if k in e.lower()]
+    noise = [p for e, p in events.items() if all([k not in e.lower() for k in positive_keys])]
+    music = [p for e, p in events.items() for k in negative_keys if k in e.lower()]
+    male = [p for e, p in events.items() if 'male' in e.lower()]
+    female = [p for e, p in events.items() if 'female' in e.lower()]
+    stats = {
+        'speak': sum(speak),
+        'noise': sum(noise),
+        'music': sum(music),
+        'male': sum(male),
+        'female': sum(female)
+    }
+    return stats
+
 # args  = Box({
 #     'sample_rate' : 16000,
 #     'window_size' : 512,
@@ -130,44 +151,26 @@ def audio_event_detection(path):
     'fmin': 50,
     'fmax': 14000,
     'model_type': 'Cnn14_DecisionLevelMax',
-    'checkpoint_path': 'Cnn14_DecisionLevelMax_mAP=0.385.pth',
+    'checkpoint_path': BASE + 'Cnn14_DecisionLevelMax_mAP=0.385.pth',
     'audio_path': path,
     'cuda': True
 })
-    print(f'starting SED:{path}')
-    if is_cached(path):
-        print(f'{path} cached, skip!')
-        return
-    # d = AudioSegment.from_file(path).duration_seconds,    
-    # # if d > (chunk_length+5):,    
-    # #     print(f'{path} too long: {d}s, skip!'),    
-    # #     continue
+    # print(f'starting SED:{path}')
+    # if is_cached(path):
+    #     print(f'{path} cached, skip!')
+    #     return
+    d = AudioSegment.from_file(path).duration_seconds
+    assert d < (chunk_length+5), f'{path} too long: {d}s, skip!'
 
-    #run SED prediction
+    # run SED prediction, returns the event probability matrix (n_frames, n_labels)
     framewise_output, labels = sound_event_detection(args2)
-
-    def analyze_frame(probs, positive_keys, negative_keys):
-        top5 = np.argsort(-probs)[:5]
-        events = {labels[i]: probs[i] for i in top5}
-        speak = [p for e, p in events.items() for k in positive_keys if k in e.lower()]
-        noise = [p for e, p in events.items() if all([k not in e.lower() for k in positive_keys])]
-        music = [p for e, p in events.items() for k in negative_keys if k in e.lower()]
-        male = [p for e, p in events.items() if 'male' in e.lower()]
-        female = [p for e, p in events.items() if 'female' in e.lower()]
-        stats = {
-            'speak': sum(speak),
-            'noise': sum(noise),
-            'music': sum(music),
-            'male': sum(male),
-            'female': sum(female)
-        }
-        return stats
-    
+    # top 10 events
     probs = framewise_output.mean(axis=0)
     top10 = {labels[i]: probs[i] for i in np.argsort(-probs)[:10]}
     print('Top 10 events:\n', top10)
     selection = []
-    stats_all = pd.DataFrame([analyze_frame(f, kw, nw) for f in framewise_output])
+    stats_all = pd.DataFrame([analyze_frame(f, kw, nw, labels) for f in framewise_output])
+    # draw events with 120s per row
     size = 12000 #120s window size
     n = int(stats_all.shape[0]/size)+1
     fig = plt.figure()
@@ -181,15 +184,13 @@ def audio_event_detection(path):
         if min_idx == max_idx:
             continue
         stats.plot(ax=ax, figsize=[20, 5*n])
-        ax.axline((min_idx, speech_10), (max_idx, speech_10),
-                label='speak low', linestyle='--')
-        ax.axline((min_idx, speech_avg), (max_idx, speech_avg),
-                label='speak avg', linestyle=':')
+        ax.axline((min_idx, speech_10), (max_idx, speech_10), label='speak low', linestyle='--')
+        ax.axline((min_idx, speech_avg), (max_idx, speech_avg), label='speak avg', linestyle=':')
     
     #save
     hash = get_md5(path)
-    fig.savefig(sed_cache + hash +'.png')
-    stats_all.to_csv(sed_cache + hash+'.csv')
+    fig.savefig(path +'.png')
+    stats_all.to_csv(path+'.csv')
 
 
 if __name__ == "__main__":
@@ -204,11 +205,11 @@ if __name__ == "__main__":
     # paths = get_all_mp3()
 
     # paths = get_all_wav()
-    paths = glob('sample/**/*.mp3', recursive=True)
+    paths = glob(f'{BASE}sample/脉冲/*.m4a', recursive=True)
     for path in tqdm(paths):
     # for path in tqdm(paths[::-1]):
     # for path in tqdm(paths[int(len(paths)/3):int(len(paths)/3*2)]):
         audio_event_detection(path)
     print(f'Finished SED at {datetime.datetime.now()}')
     # sleep
-    time.sleep(3600)
+    # time.sleep(3600)
