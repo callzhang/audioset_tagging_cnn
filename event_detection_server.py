@@ -6,6 +6,8 @@ from pydub import AudioSegment
 import pandas as pd, numpy as np, torch, librosa
 import os, re, io
 from matplotlib import pyplot as plt
+from typing import List, Dict, Optional
+from pydantic import BaseModel
 
 app = FastAPI()
 SPEAK_EVENTS = ['speech', 'speak', 'conversation', 'male', 'female', 'narration']
@@ -28,6 +30,17 @@ args  = Box({
     'cuda': False
 })
 
+
+class Detection(BaseModel):
+    speak: float
+    male: float
+    female: float
+    events: List[str]
+    file: str
+    threshold: float
+    detail: Optional[Dict[str, List[float]]]
+
+
 @app.on_event("startup")
 async def startup():
     global sed_model
@@ -45,10 +58,10 @@ async def debug_exception_handler(request: Request, exc: Exception):
     return ORJSONResponse(status_code=500, content=content, media_type='text/plain')
 
 
-@app.post('/detect_event', response_class=ORJSONResponse)
+@app.post('/detect_event', response_class=ORJSONResponse, response_model=Detection)
 def audio_event_detection(file: UploadFile = File(...), threshold:float=EVENT_THRESHOLD, detail:bool=False, plot:bool=False, background_tasks: BackgroundTasks = None):
     # assert file.content_type.split('/')[0] == 'audio'
-    format = file.content_type.split('/')[-1]
+    format = file.filename.split('/')[-1].split('.')[-1]
     audio = AudioSegment.from_file(file.file, format=format).set_frame_rate(SAMPLE_RATE)
     assert audio.duration_seconds < 60, f'{file.filename} duration too long: {audio.duration_seconds}'
     temp_file = TEMP_FOLDER+file.filename+'.mp3'
