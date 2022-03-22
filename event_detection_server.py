@@ -1,10 +1,11 @@
 from fastapi import FastAPI, Request, UploadFile, File, BackgroundTasks
-from fastapi.responses import ORJSONResponse
+from fastapi.responses import ORJSONResponse, StreamingResponse, FileResponse
 from panns_inference import AudioTagging, SoundEventDetection, labels
 from box import Box
 from pydub import AudioSegment
 import pandas as pd, numpy as np, torch, librosa
-import os, re
+import os, re, io
+from matplotlib import pyplot as plt
 
 app = FastAPI()
 SPEAK_EVENTS = ['speech', 'speak', 'conversation', 'male', 'female', 'narration']
@@ -12,6 +13,7 @@ SPEAK_EVENT_NAME = 'speak'
 BASE = os.path.dirname(__file__) 
 TEMP_FOLDER = BASE+'/temp/'
 EVENT_THRESHOLD = 0.1
+SAMPLE_RATE = 32000
 
 args  = Box({
     'sample_rate': 32000,
@@ -44,10 +46,10 @@ async def debug_exception_handler(request: Request, exc: Exception):
 
 
 @app.post('/detect_event', response_class=ORJSONResponse)
-def audio_event_detection(file: UploadFile = File(...), threshold:float=EVENT_THRESHOLD ,detail:bool=False, background_tasks: BackgroundTasks = None):
-    assert file.content_type.split('/')[0] == 'audio'
+def audio_event_detection(file: UploadFile = File(...), threshold:float=EVENT_THRESHOLD, detail:bool=False, plot:bool=False, background_tasks: BackgroundTasks = None):
+    # assert file.content_type.split('/')[0] == 'audio'
     format = file.content_type.split('/')[-1]
-    audio = AudioSegment.from_file(file.file, format=format).set_frame_rate(32000)
+    audio = AudioSegment.from_file(file.file, format=format).set_frame_rate(SAMPLE_RATE)
     assert audio.duration_seconds < 60, f'{file.filename} duration too long: {audio.duration_seconds}'
     temp_file = TEMP_FOLDER+file.filename+'.mp3'
     audio.export(temp_file, format='mp3')
@@ -56,9 +58,12 @@ def audio_event_detection(file: UploadFile = File(...), threshold:float=EVENT_TH
     audio = audio[None, :]
     framewise_output = sed_model.inference(audio).squeeze()
     background_tasks.add_task(os.remove, temp_file)
+    if plot:
+        fig = plot_fig(file.filename, audio, framewise_output)
+        return StreamingResponse(content=fig, media_type="image/png")
     # top 10 events
     probs_mean = framewise_output.mean(axis=0)
-    top10 = {labels[i]: probs_mean[i] for i in np.argsort(-probs_mean)[:10]}
+    top10 = {labels[i]: probs_mean[i].item() for i in np.argsort(-probs_mean)[:10]}
     print('Top 10 events:\n', top10)
     # event_series
     top_events = extract_event(framewise_output, labels)
@@ -80,7 +85,9 @@ def audio_event_detection(file: UploadFile = File(...), threshold:float=EVENT_TH
         'male': male_prob.item(),
         'female': female_prob.item(),
         'events': events,
-        'file': file.filename
+        # 'top_events': top10,
+        'file': file.filename,
+        'threshold': threshold
     }
     if detail:
         result['detail'] = top_events.to_dict(orient='list')
@@ -100,6 +107,38 @@ def to_python(dict_):
     '''convert dict to python object
     '''
     return {k: v.items() if isinstance(v, np.float64) else v for k, v in dict_.items()}
+
+
+def plot_fig(filename, waveform, framewise_output):
+    # Plot result
+    window_size, hop_size = 1024, 320
+    frames_per_second = SAMPLE_RATE // hop_size
+    stft = librosa.core.stft(y=waveform[0], n_fft=window_size, hop_length=hop_size, window='hann', center=True)
+    frames_num = stft.shape[-1]
+    sorted_indexes = np.argsort(np.max(framewise_output, axis=0))[::-1]
+    top_k = 10  # Show top results
+    top_events = sorted_indexes[:top_k]
+    top_result_mat = framewise_output[:, sorted_indexes[0: top_k]]
+    fig, axs = plt.subplots(3, 1, sharex=True, figsize=(10, 10))
+    axs[0].matshow(np.log(np.abs(stft)), origin='lower', aspect='auto', cmap='jet')
+    axs[0].set_ylabel('Frequency bins')
+    axs[0].set_title(filename)
+    axs[1].matshow(top_result_mat.T, origin='upper', aspect='auto', cmap='jet', vmin=0, vmax=1)
+    axs[1].xaxis.set_ticks(np.arange(0, frames_num, frames_per_second))
+    axs[1].xaxis.set_ticklabels(np.arange(0, frames_num / frames_per_second))
+    axs[1].yaxis.set_ticks(np.arange(0, top_k))
+    axs[1].yaxis.set_ticklabels(np.array(labels)[sorted_indexes[0: top_k]])
+    axs[1].yaxis.grid(color='k', linestyle='solid', linewidth=0.3, alpha=0.3)
+    axs[1].set_xlabel('Seconds')
+    axs[1].xaxis.set_ticks_position('bottom')
+    top_event_series = pd.DataFrame(top_result_mat, columns=np.array(labels)[top_events])
+    top_event_series.plot(ax=axs[2], legend=True)
+
+    plt.tight_layout()
+    imgio = io.BytesIO()
+    plt.savefig(imgio, format='png')
+    imgio.seek(0)
+    return imgio
 
 if __name__ == '__main__':
     '''uvicorn event_detection_server:app --workers=4 --host=0.0.0.0 --port=9012'''
