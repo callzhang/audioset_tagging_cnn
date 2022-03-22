@@ -102,7 +102,7 @@ def to_python(dict_):
     return {k: v.items() if isinstance(v, np.float64) else v for k, v in dict_.items()}
 
 if __name__ == '__main__':
-    '''uvicorn audio_event_detection_server:app --workers=4 --host=0.0.0.0 --port=9012'''
+    '''uvicorn event_detection_server:app --workers=4 --host=0.0.0.0 --port=9012'''
     import uvicorn
     uvicorn.run(app, host='0.0.0.0', port=9012, debug=True)
 
