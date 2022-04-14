@@ -16,6 +16,7 @@ BASE = os.path.dirname(__file__)
 TEMP_FOLDER = BASE+'/temp/'
 EVENT_THRESHOLD = 0.1
 SAMPLE_RATE = 32000
+DEVICE = 'cuda'
 
 args  = Box({
     'sample_rate': 32000,
